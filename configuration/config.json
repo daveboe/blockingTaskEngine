@@ -1,0 +1,26 @@
+{
+	"filters":
+	{
+		"vmMaxMemory":"256",
+		"vmMaxCPU":"36",
+		"vmMaxDisks":"7",
+		"vmMaxStorage":"10"
+	},
+
+	"vcd":
+	{
+		"host":"datacenteri.swisscomcloud.com",
+		"username":"api_vcd_david@0cbu000cbu0201dcg",
+		"apiversion": "27.0",
+		"verify":true
+	},
+
+	"amqp":
+	{
+		"host":"ss007029.itoper.local",
+		"username":"bte",
+		"password":"Swisscom$01",
+		"exchange":"vcd.ALPHA.Input",
+		"consumerQueue":"vcd.Alpha.BTEInput"
+	}
+}
