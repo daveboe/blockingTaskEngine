@@ -7,8 +7,8 @@ import os
 import json
 import logging.config
 #import bte.vCD
-from bte.rabbitMQ import AMQP
-from bte.vCloudDirectorAPI import vCDAPI
+from rabbitMQ import AMQP
+from vCloudDirectorAPI import vCDAPI
 #import time
 
 
