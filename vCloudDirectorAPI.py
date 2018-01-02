@@ -36,9 +36,7 @@ class vCDAPI(object):
         self.request_exceptions = (requests.exceptions.Timeout, requests.exceptions.ConnectionError,
                                    requests.exceptions.HTTPError)
         self._login()
-        self.namespace = {'rasd': 'http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData',
-                          'vcloud': 'http://www.vmware.com/vcloud/v1.5',
-                          'ovf': 'http://schemas.dmtf.org/ovf/envelope/1'}
+        self.namespace = conf['vcd'].get('namespaces')
 
     """
     Define some HTTP methods used for vCD API
@@ -266,13 +264,19 @@ class vCDAPI(object):
             self.logger.info('Failed to retrieve the VM configuration.')
             return None
 
-    def get_vm_href(self, urn):
+    def resolve_vm_entity(self, urn):
         url = '%s/api/entity/%s' % (self.host, urn)
-        response = self.get(url, max_retries=self.max_retries, headers=self.get_vcloud_headers())
-        xml_doc = etree.fromstring(response.content)
-        link_lst = xml_doc.xpath('//x:Link', namespaces={'x': self.namespace['vcloud']})
-        vmhrefs = [el.attrib['href'] for el in link_lst if el.attrib['type'] == 'application/vnd.vmware.vcloud.vm+xml']
-        return vmhrefs
+        try:
+            response = self.get(url, max_retries=self.max_retries, headers=self.get_vcloud_headers())
+            if response.status_code == 200:
+                self.logger.debug('Entity with ID: %s found' %urn)
+                return response
+            else:
+                response.raise_for_status()
+        except self.request_exceptions as error:
+            self.logger.error('Error: %s' %error)
+            return None
+
 
     def get_blocking_task_by_id(self, taskid):
         url = '%s/api/admin/extension/blockingTask/%s' % (self.host, taskid)
