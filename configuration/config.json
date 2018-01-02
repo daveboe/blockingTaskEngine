@@ -9,18 +9,18 @@
 
 	"vcd":
 	{
-		"host":"datacenteri.swisscomcloud.com",
-		"username":"api_vcd_david@0cbu000cbu0201dcg",
+		"host":"my.cloudendpoint.com",
+		"username":"apiuser@0org",
 		"apiversion": "27.0",
 		"verify":true
 	},
 
 	"amqp":
 	{
-		"host":"ss007029.itoper.local",
+		"host":"rabbithost.domain.local",
 		"username":"bte",
-		"password":"Swisscom$01",
-		"exchange":"vcd.ALPHA.Input",
-		"consumerQueue":"vcd.Alpha.BTEInput"
+		"password":"somepassword",
+		"exchange":"exchange",
+		"consumerQueue":"queue"
 	}
 }
