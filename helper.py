@@ -1,20 +1,17 @@
 import requests
+import logging
 
-def retryer(max_retries=2):
-    def wraps(func):
-        request_exceptions = (
-            requests.exceptions.Timeout,
-            requests.exceptions.ConnectionError,
-            requests.exceptions.HTTPError
-        )
-        def inner(*args, **kwargs):
-            for i in range(max_retries):
-                try:
-                    result = func(*args, **kwargs)
-                except request_exceptions as err:
-                    continue
-                else:
-                    return result
-        return inner
-    return wraps
 
+def retry(func, max_tries=1, logging=False, hook=None):
+    def retried_func(*args, **kwargs):
+        tries = 0
+        while True:
+            if hook is not None:
+                hook(logging)
+            resp = func(*args, **kwargs)
+            if resp.status_code == 500 and tries < max_tries:
+                tries += 1
+                continue
+            break
+        return resp
+    return retried_func

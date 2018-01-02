@@ -5,13 +5,10 @@ Created on 20.12.2017
 """
 import logging
 import requests
-import time
-import xmltodict
-from pip._vendor.retrying import retry
-import bte.helper
+import lxml.etree as etree
 
 
-class vCDAPI (object):
+class vCDAPI(object):
     """
     classdocs
     """
@@ -29,14 +26,19 @@ class vCDAPI (object):
         self.username = conf['vcd'].get('username')
         try:
             with open('configuration/password.txt', 'rt') as file:
-                self.password = file.read() #.replace('\\n', '')
+                self.password = file.read()  # .replace('\\n', '')
                 file.close()
         except Exception as err:
             self.logger.debug('Error: %s' % err)
         self.verify = conf['vcd'].get('verify') if conf['vcd'].get('verify') else True
-        self.max_retries = conf['vcd'].get('retries') if conf['vcd'].get('retries') else 1
+        self.max_retries = conf['vcd'].get('retries') if conf['vcd'].get('retries') else 2
         self.token = None
+        self.request_exceptions = (requests.exceptions.Timeout, requests.exceptions.ConnectionError,
+                                   requests.exceptions.HTTPError)
         self._login()
+        self.namespace = {'rasd': 'http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData',
+                          'vcloud': 'http://www.vmware.com/vcloud/v1.5',
+                          'ovf': 'http://schemas.dmtf.org/ovf/envelope/1'}
 
     """
     Define some HTTP methods used for vCD API
@@ -48,7 +50,7 @@ class vCDAPI (object):
     @staticmethod
     def _log_request(logger, data=None, headers=None, url=None):
         if logger is not None:
-            logger.debug('url=%s' % url)
+            logger.debug('request url: %s' % url)
             if headers is not None:
                 for header in headers:
                     logger.debug(
@@ -62,81 +64,95 @@ class vCDAPI (object):
     def _log_response(logger, response):
         if logger is not None:
             for header in response.headers:
-                logger.debug('response header: %s: %s', header, response.headers[header])
+                logger.debug('response header: %s:%s', header, response.headers[header])
             logger.debug('[%d] %s', response.status_code, response.text)
 
-    def get(self, url, max_retries=0, data=None, **kwargs):
+    def get(self, url, max_retries=1, data=None, **kwargs):
+        self.logger.debug('<----- GET request start ----->')
+        self._log_request(self.logger, data=data, headers=kwargs.get('headers', None), url=url)
         for i in range(max_retries):
-            self.logger.debug('%s' % i.tostring())
             try:
-                self._log_request(self.logger, data=data, headers=kwargs.get('headers', None), url=url)
                 response = requests.get(url, data=data, **kwargs)
-                self._log_response(self.logger, response)
-                if response.status_code in [401, 403]:
-                    self.logger.debug('try to re-login after HTTP error: %s' % response.status_code)
-                    self.logger.info('try to POST the request again. remaining retries: %s' % (max_retries-i))
-                    self._login()
+                if response.status_code == 200:
+                    break  # Break and go to final task if request was successful (any status code 200-299)
+                elif response.status_code in [401, 403]:
+                    self.logger.info(
+                        'Try to re-login after HTTP error: %s and send request again' % response.status_code)
+                    self._login(logging=False)
                     response.raise_for_status()
                 else:
-                    return response
-            except requests.exceptions.HTTPError:
+                    response.raise_for_status()  # raise for any other HTTP status than the ones handled above
+            except self.request_exception:
                 continue
-            else:
+            finally:
+                self._log_response(self.logger, response)
+                self.logger.debug('<----- GET request end ----->')
                 return response
 
     def post(self, url, max_retries=0, data=None, json=None, **kwargs):
+        self.logger.debug('<----- POST request start ----->')
+        self._log_request(self.logger, data=data, headers=kwargs.get('headers', None), url=url)
         for i in range(max_retries):
-            self.logger.debug('%i' % i)
             try:
-                self._log_request(self.logger, data=data, headers=kwargs.get('headers', None), url=url)
                 response = requests.post(url, data=data, json=json, **kwargs)
-                self._log_response(self.logger, response)
-                if response.status_code in [401, 403]:
-                    self.logger.debug('try to re-login after HTTP error: %s' % response.status_code)
-                    self.logger.info('try to POST the request again. remaining retries: %s' % (max_retries-i))
-                    self._login()
+                if response.status_code == 200:
+                    break  # Break and go to final task if request was successful (any status code 200-299)
+                elif response.status_code in [401, 403]:
+                    self.logger.info(
+                        'Try to re-login after HTTP error: %s and send request again' % response.status_code)
+                    self._login(logging=False)
                     response.raise_for_status()
                 else:
-                    return response
-            except requests.exceptions.HTTPError:
+                    response.raise_for_status()  # raise for any other HTTP status than the ones handled above
+            except self.request_exceptions:
                 continue
-            else:
+            finally:
+                self._log_response(self.logger, response)
+                self.logger.debug('<----- POST request end ----->')
                 return response
 
     def put(self, url, max_retries=0, data=None, **kwargs):
+        self.logger.debug('<----- PUT request start ----->')
+        self._log_request(self.logger, data=data, headers=kwargs.get('headers', None), url=url)
         for i in range(max_retries):
             try:
-                self._log_request(self.logger, data=data, headers=kwargs.get('headers', None), url=url)
-                response = requests.get(url, data=data, **kwargs)
-                self._log_response(self.logger, response)
-                if response.status_code in [401, 403]:
-                    self.logger.debug('try to re-login after HTTP error: %s' % response.status_code)
-                    self.logger.info('try to POST the request again. remaining retries: %s' % (max_retries-i))
-                    self._login()
+                response = requests.put(url, data=data, **kwargs)
+                if response.status_code < 300:
+                    break  # Break and go to final task if request was successful (any status code 200-299)
+                elif response.status_code in [401, 403]:
+                    self.logger.info(
+                        'Try to re-login after HTTP error: %s and send request again' % response.status_code)
+                    self._login(logging=False)
                     response.raise_for_status()
                 else:
-                    return response
+                    response.raise_for_status()  # raise for any other HTTP status than the ones handled above
             except requests.exceptions.HTTPError:
                 continue
-            else:
+            finally:
+                self._log_response(self.logger, response)
+                self.logger.debug('<----- PUT request end ----->')
                 return response
 
     def delete(self, url, max_retries=0, data=None, **kwargs):
+        self.logger.debug('<----- DELETE request start ----->')
+        self._log_request(self.logger, data=data, headers=kwargs.get('headers', None), url=url)
         for i in range(max_retries):
             try:
-                self._log_request(self.logger, data=data, headers=kwargs.get('headers', None), url=url)
-                response = requests.delete(url, data=data, **kwargs)
-                self._log_response(self.logger, response)
-                if response.status_code in [401, 403]:
-                    self.logger.debug('try to re-login after HTTP error: %s' % response.status_code)
-                    self.logger.info('try to POST the request again. remaining retries: %s' % (max_retries-i))
-                    self._login()
+                response = requests.delete(url, **kwargs)
+                if response.status_code == 200:
+                    break  # Break and go to final task if request was successful (any status code 200-299)
+                elif response.status_code in [401, 403]:
+                    self.logger.info(
+                        'Try to re-login after HTTP error: %s and send request again' % response.status_code)
+                    self._login(logging=False)
                     response.raise_for_status()
                 else:
-                    return response
+                    response.raise_for_status()  # raise for any other HTTP status than the ones handled above
             except requests.exceptions.HTTPError:
                 continue
-            else:
+            finally:
+                self._log_response(self.logger, response)
+                self.logger.debug('<----- DELETE request end ----->')
                 return response
 
     """
@@ -147,33 +163,30 @@ class vCDAPI (object):
         headers = {"x-vcloud-authorization": self.token, "Accept": "application/*+xml;version=" + self.apiversion}
         return headers
 
-    def _login(self):
-        request_exceptions = (requests.exceptions.Timeout, requests.exceptions.ConnectionError,
-                              requests.exceptions.HTTPError)
-        self.logger.debug('Start log-in process')
+    def _login(self, logging=True):
         url = '%s/api/sessions' % self.host
+        if logging:
+            self.logger.debug('Start log-in process')
+            self.logger.debug('username: %s and password: %s ' % (self.username, self.password))
+            self._log_request(self.logger, headers=self.get_vcloud_headers(), url=url)
         for i in range(self.max_retries):
             try:
-                self.logger.debug('username: %s and password: ' % self.password)
-                self._log_request(self.logger, headers=self.get_vcloud_headers(), url=url)
                 response = requests.post(url, headers=self.get_vcloud_headers(), auth=(self.username, self.password),
-                             verify=self.verify)
-                self._log_response(self.logger, response)
+                                         verify=self.verify)
                 if response.status_code == 200:
-                    self.logger.debug("Successfully logged in to vCD %s" % self.host)
                     self.token = response.headers['x-vcloud-authorization']
-                    self.logger.debug('Token set successfully to: %s' % self.token)
+                    self.logger.info("Successfully logged in to vCD %s" % self.host)
+                    self.logger.debug('Token successfully set to: %s' % self.token)
                 else:
-                    self.logger.critical('failed to login to vCD %s with the following status: %s' % (self.host, response.status_code))
-                    self.logger.debug('login status: %s' % response.status_code)
                     response.raise_for_status()
-            except request_exceptions as error:
-                self.logger.debug('Error: %s - going to retry login' % error)
+            except self.request_exceptions as error:
+                self.logger.critical('Error: %s - going to retry login' % error)
                 continue
+            finally:
+                if logging:
+                    self._log_response(self.logger, response)
 
     def _logout(self):
-        request_exceptions = (requests.exceptions.Timeout, requests.exceptions.ConnectionError,
-                              requests.exceptions.HTTPError)
         self.logger.debug('logout from VCD %s' % self.host)
         url = '%s/api/sessions' % self.host
         for i in range(self.max_retries):
@@ -187,30 +200,90 @@ class vCDAPI (object):
                     self.token = response.headers['x-vcloud-authorization']
                     self.logger.debug('Token set successfully to: %s' % self.token)
                 else:
-                    self.logger.critical('failed to logout from vCD %s with the following status: %s' % (self.host, response.status_code))
+                    self.logger.critical('failed to logout from vCD %s with the following status: %s' % (
+                    self.host, response.status_code))
                     response.raise_for_status()
-            except request_exceptions as error:
+            except self.request_exceptions as error:
                 self.logger.debug('Error: %s - going to retry logout' % error)
                 continue
 
-    def get_vm_config(self, vmid):
-        url = '%s/api/vApp/vm-%s/virtualHardwareSection' % (self.host, vmid)
-        resp = self.get(url, max_retries=self.max_retries, headers=self.get_vcloud_headers())
-        # resp = requests.get(url, headers=headers, verify=self.verify)
-        if resp.status_code == 200:
+    def get_vm_cpu_config(self, vmid):
+        url = '%s/api/vApp/vm-%s/virtualHardwareSection/cpu' % (self.host, vmid)
+        response = self.get(url, headers=self.get_vcloud_headers(), verify=self.verify)
+        if response.status_code == 200:
             self.logger.debug('VM %s found')
-            output = xmltodict.parse(resp.text)
-            self.logger.debug('This is the VM config: %s' % output)
-            return output
-        elif resp.status_code == 401:
-            self.logger.info('Failed to retrieve the VM configuration. Response: %s' % resp.status_code)
+            xml_doc = etree.fromstring(response.content)
+            self.logger.debug('This is the VM config: %s' % xml_doc)
+            return xml_doc
+        elif response.status_code == 401:
+            self.logger.info('Failed to retrieve the VM configuration. Response: %s' % response.status_code)
             self.logger.info('Failed to retrieve the VM configuration.')
             return None
 
-    def get_vm_id(self, vappid):
-        url = '%s/api/query?type=vm&filter=(id==%s)' % (self.host, vappid)
-        resp = self.get(url, max_retries=self.max_retries, headers=self.get_vcloud_headers(), logger=self.logger)
+    def get_vm_memory_config(self, vmid):
+        url = '%s/api/vApp/vm-%s/virtualHardwareSection/memory' % (self.host, vmid)
+        response = self.get(url, max_retries=self.max_retries, headers=self.get_vcloud_headers())
+        # resp = requests.get(url, headers=headers, verify=self.verify)
+        if response.status_code == 200:
+            self.logger.debug('VM %s found')
+            xml_doc = etree.fromstring(response.content)
+            self.logger.debug('This is the VM config: %s' % xml_doc)
+            return recs
+        elif response.status_code == 401:
+            self.logger.info('Failed to retrieve the VM configuration. Response: %s' % response.status_code)
+            self.logger.info('Failed to retrieve the VM configuration.')
+            return None
 
-    def get_vcd_task_by_id(self, taskid):
-        url = '%s/api/task/%s' % (self.host, taskid)
-        resp = self.get(url, max_retries=self.max_retries, headers=self.get_vcloud_headers(), logger=self.logger)
+    def get_vm_disk_config(self, vmid):
+        url = '%s/api/vApp/vm-%s/virtualHardwareSection/disks' % (self.host, vmid)
+        response = self.get(url, max_retries=self.max_retries, headers=self.get_vcloud_headers())
+        # resp = requests.get(url, headers=headers, verify=self.verify)
+        if response.status_code == 200:
+            self.logger.debug('VM %s found')
+            xml_doc = etree.fromstring(response.content)
+            recs = xml_doc.xpath('//x:Item', namespaces={'x': self.namespace})
+            # vmconfig = [el.attrib for el in recs]
+            self.logger.debug('This is the VM config: %s' % xml_doc)
+            return recs
+        elif response.status_code == 401:
+            self.logger.info('Failed to retrieve the VM configuration. Response: %s' % response.status_code)
+            self.logger.info('Failed to retrieve the VM configuration.')
+            return None
+
+    def get_vm_network_config(self, vmid):
+        url = '%s/api/vApp/vm-%s/virtualHardwareSection/networkCards' % (self.host, vmid)
+        response = self.get(url, max_retries=self.max_retries, headers=self.get_vcloud_headers())
+        # resp = requests.get(url, headers=headers, verify=self.verify)
+        if response.status_code == 200:
+            self.logger.debug('VM %s found')
+            xml_doc = etree.fromstring(response.content)
+            recs = xml_doc.xpath('//x:Item', namespaces={'x': self.namespace})
+            # vmconfig = [el.attrib for el in recs]
+            self.logger.debug('This is the VM config: %s' % xml_doc)
+            return recs
+        elif response.status_code == 401:
+            self.logger.info('Failed to retrieve the VM configuration. Response: %s' % response.status_code)
+            self.logger.info('Failed to retrieve the VM configuration.')
+            return None
+
+    def get_vm_href(self, urn):
+        url = '%s/api/entity/%s' % (self.host, urn)
+        response = self.get(url, max_retries=self.max_retries, headers=self.get_vcloud_headers())
+        xml_doc = etree.fromstring(response.content)
+        link_lst = xml_doc.xpath('//x:Link', namespaces={'x': self.namespace['vcloud']})
+        vmhrefs = [el.attrib['href'] for el in link_lst if el.attrib['type'] == 'application/vnd.vmware.vcloud.vm+xml']
+        return vmhrefs
+
+    def get_blocking_task_by_id(self, taskid):
+        url = '%s/api/admin/extension/blockingTask/%s' % (self.host, taskid)
+        response = self.get(url, max_retries=self.max_retries, headers=self.get_vcloud_headers(), logger=self.logger)
+
+    def take_action_on_blockingtask(self, taskid, action, msg):
+        self.logger.info("Taking action %s on task %s" % (action, taskid))
+        """ construct url with the given task ID and action and prepare body """
+        url = '%s/api/admin/extension/blockingTask/%s/action/%s' % (self.host, taskid, action.lower())
+        body = '<?xml version="1.0" encoding="UTF-8"?><BlockingTaskOperationParams xmlns="http://www.vmware.com/vcloud/extension/v1.5"><Message>%s</Message></BlockingTaskOperationParams>' % msg
+        response = self.post(url, max_retries=self.max_retries, headers=self.get_vcloud_headers(), data=body,
+                             logger=self.logger)
+        if response.status_code == 200:
+            self.logger.info("Action %s on task %s executed successfully" % (action, taskid))
