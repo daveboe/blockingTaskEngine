@@ -1,26 +1,42 @@
 {
 	"filters":
 	{
-		"vmMaxMemory":"256",
-		"vmMaxCPU":"36",
-		"vmMaxDisks":"7",
-		"vmMaxStorage":"10"
+	  "vmMaxMemory":"256",
+	  "vmMaxCPU":"36",
+	  "vmMaxDisks":"7",
+	  "vmMaxStorage":"10"
 	},
 
 	"vcd":
 	{
-		"host":"my.cloudendpoint.com",
-		"username":"apiuser@0org",
-		"apiversion": "27.0",
-		"verify":true
+	  "host":"",
+	  "username":"",
+	  "apiversion": "27.0",
+	  "verify":true,
+	  "namespaces":
+	  {
+        "vcloud":"http://www.vmware.com/vcloud/v1.5",
+        "ovf":"http://schemas.dmtf.org/ovf/envelope/1",
+        "rasd":"http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData",
+        "vmw":"http://www.vmware.com/schema/ovf"
+      }
 	},
 
 	"amqp":
 	{
-		"host":"rabbithost.domain.local",
-		"username":"bte",
-		"password":"somepassword",
-		"exchange":"exchange",
-		"consumerQueue":"queue"
+      "host":"192.168.0.10",
+	  "username":"bte",
+	  "password":"bte1234",
+	  "exchange":"vcd_int.in",
+      "dl-exchange":"bte.int.deadletter.ex",
+      "type":"topic",
+	  "queues":
+      {
+        "queue":"bte.int.create",
+        "dlqueue":"dcs.bte.int"
+      },
+      "routingKey":"#.blockingtask.create.#",
+      "message-ttl":300
+
 	}
 }
