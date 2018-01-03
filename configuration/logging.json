@@ -19,7 +19,7 @@
     {
       "class": "logging.StreamHandler",
       "level": "DEBUG",
-      "formatter": "simple",
+      "formatter": "detailed",
 	  "stream": "ext://sys.stdout"
 	},
 
@@ -45,24 +45,7 @@
     }
   },
 
-  "loggers":
-  {
-    "vCloudDirectorAPI":
-    {
-      "level": "DEBUG",
-      "handlers": ["console"],
-      "propagate": "no",
-      "qualname": "vCloudDirectorAPI"
-    },
 
-    "AMQP":
-    {
-      "level": "DEBUG",
-      "handlers": ["console"],
-      "propagate": "no",
-      "qualname": "rabbitMQ"
-    }
-  },
 
   "root":
   {

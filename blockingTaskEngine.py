@@ -44,10 +44,11 @@ def read_config(default_path='config.json'):
         logger.debug("Error while parsing JSON ", exc_info=True)
 
 
-def extract_vm_id(amqp_msg, namespace):
-    xml_doc = etree.fromstring(amqp_msg.content)
+def extract_vm_id(amqp_body, namespace):
+    xml_doc = etree.fromstring(amqp_body.content)
     link_lst = xml_doc.xpath('//x:Link', namespaces={'x': namespace})
-    vm_id = [el.attrib['id'] for el in link_lst if el.attrib['type'] == 'vcloud:vm']
+    result = [el.attrib['id'] for el in link_lst if el.attrib['type'] == 'vcloud:vm']
+    vm_id = result[0].strip()
     return vm_id[0]
 
 
@@ -74,14 +75,9 @@ if __name__ == '__main__':
     logger.info(':::: read config done ::::')
     vmhref = vcdapi.resolve_vm_entity('urn:vcloud:vm:965c2aac-8c5b-4ba7-87a8-72cafa759609')
     logger.info(vmhref)
+
     with Connection(conf['amqp'].get('host'), userid=conf['amqp'].get('username'),
                     password=conf['amqp'].get('password'), heartbeat=4,) as conn:
         worker = Worker(conf, conn)
         worker.run()
 
-"""
-    while True:
-        logger.debug('checking VCD session...')
-        vcd.checkVCDSession()
-        time.sleep(15)
-"""
