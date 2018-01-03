@@ -7,7 +7,8 @@ import os
 import json
 import logging.config
 import lxml.etree as etree
-from rabbitMQ import AMQP
+from rabbitMQ import Worker
+from kombu import Connection
 from vCloudDirectorAPI import vCDAPI
 
 
@@ -71,9 +72,12 @@ if __name__ == '__main__':
         qty = item.find('rasd:VirtualQuantity', ns)
         print(' |--> ', qty.text)
     logger.info(':::: read config done ::::')
-    vmhref = vcdapi.get_vm_href('urn:vcloud:vm:965c2aac-8c5b-4ba7-87a8-72cafa759609')
-    logger.info(vmhref[0])
-    amqp = AMQP(conf)
+    vmhref = vcdapi.resolve_vm_entity('urn:vcloud:vm:965c2aac-8c5b-4ba7-87a8-72cafa759609')
+    logger.info(vmhref)
+    with Connection(conf['amqp'].get('host'), userid=conf['amqp'].get('username'),
+                    password=conf['amqp'].get('password'), heartbeat=4,) as conn:
+        worker = Worker(conf, conn)
+        worker.run()
 
 """
     while True:
