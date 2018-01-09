@@ -39,7 +39,7 @@ class vCDAPI(object):
         self.request_exceptions = (requests.exceptions.Timeout, requests.exceptions.ConnectionError,
                                    requests.exceptions.HTTPError)
         self._login()
-        self.namespace = conf['vcd'].get('namespaces')
+        self.namespaces = conf['vcd'].get('namespaces')
 
     """
     Define some HTTP methods used for vCD API
@@ -241,7 +241,7 @@ class vCDAPI(object):
         if response.status_code == 200:
             debug('VM %s found')
             xml_doc = etree.fromstring(response.content)
-            recs = xml_doc.xpath('//x:Item', namespaces={'x': self.namespace})
+            recs = xml_doc.xpath('//x:Item', namespaces={'x': self.namespaces})
             # vmconfig = [el.attrib for el in recs]
             debug('This is the VM config: %s' % xml_doc)
             return recs
@@ -257,10 +257,10 @@ class vCDAPI(object):
         if response.status_code == 200:
             debug('VM %s found')
             xml_doc = etree.fromstring(response.content)
-            recs = xml_doc.xpath('//x:Item', namespaces={'x': self.namespace})
+            #recs = xml_doc.xpath('//x:Item', namespaces={'x': self.namespaces})
             # vmconfig = [el.attrib for el in recs]
             debug('This is the VM config: %s' % xml_doc)
-            return recs
+            return response
         elif response.status_code == 401:
             info('Failed to retrieve the VM configuration. Response: %s' % response.status_code)
             info('Failed to retrieve the VM configuration.')
@@ -279,9 +279,42 @@ class vCDAPI(object):
             error('Error: %s' % err)
             return None
 
+    def check_vm_network(self, vm_id):
+        badconfig = False
+        netConf = self.get_vm_network_config(vm_id)
+        xml_doc = etree.fromstring(netConf.content)
+        recs = xml_doc.xpath('//x:Connection', namespaces={'x': self.namespaces['rasd']})
+        lst = [el.text for el in recs ]
+        print(lst, len(lst))
+        if len(lst) > 1:
+            for n in lst:
+                if lst.count(n) > 1:
+                    info('Bad config: more than one network adapter connected to the network: %s' % n)
+                    badconfig = True
+                    break
+        return badconfig
+
+        print(elem.text)
+        qty = item.find('rasd:VirtualQuantity', ns)
+        print(' |--> ', qty.text)
+        result = [el.attrib['id'] for el in recs if el.attrib['type'] == attrib_type]
+        return result
+
+    def check_vm_memory(self, memlimit, xml ):
+        return result
+
+    def check_vm_cpu(self, cpulimit, xml):
+        """to be implemented"""
+        return result
+
+    def check_vm_disk(self, disklimit, storagelimit, xml):
+        """to be implemented"""
+        return result
+
     def get_blocking_task_by_id(self, taskid):
         url = '%s/api/admin/extension/blockingTask/%s' % (self.host, taskid)
         response = self.get(url, max_retries=self.max_retries, headers=self.get_vcloud_headers())
+        return response
 
     def take_action_on_blockingtask(self, taskid, action, msg):
         info("Taking action %s on task %s" % (action, taskid))
