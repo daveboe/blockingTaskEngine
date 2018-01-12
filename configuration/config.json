@@ -1,16 +1,18 @@
 {
-	"filters":
-	{
-	  "vmMaxMemory":"256",
-	  "vmMaxCPU":"36",
-	  "vmMaxDisks":"7",
-	  "vmMaxStorage":"10"
+	"bte":
+    {
+      "mode":"active",
+      "filters": {
+        "vmMaxMemory": "256",
+        "vmMaxCPU": "36",
+        "vmMaxDisks": "7",
+        "vmMaxStorage": "10"
+      }
 	},
-
 	"vcd":
 	{
-	  "host":"",
-	  "username":"",
+	  "host":"datacenteri.swisscomcloud.com",
+	  "username":"api_vcd_david@0cbu000cbu0201dcg",
 	  "apiversion": "27.0",
 	  "verify":true,
 	  "namespaces":

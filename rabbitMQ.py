@@ -1,9 +1,6 @@
-"""
-Created on 19.12.2017
-
-@author: tzhboda4
-"""
 import logging.config
+from time import sleep
+
 import lxml.etree as etree
 from kombu import Exchange, Queue
 from kombu.mixins import ConsumerMixin
@@ -31,7 +28,7 @@ class BlockingTaskEngineWorker(ConsumerMixin):
 
     def on_message(self, body, message):
         debug('Got message from RabbitMQ: %s' % message.headers)
-        info('Start handling of blocking task with ID: %s' % message.headers.get('notification.entityUUID') )
+        info('Start handling of blocking task with ID: %s' % message.headers.get('notification.entityUUID'))
         self.handle_blocking_task(body, message.headers.get('notification.entityUUID'))
         message.ack()
 

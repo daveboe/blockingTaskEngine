@@ -1,3 +1,8 @@
+"""
+Created on 20.12.2017
+
+@author: tzhboda4
+"""
 import logging
 import requests
 import lxml.etree as etree
@@ -70,13 +75,14 @@ class vCDAPI(object):
         debug('<----- GET request start ----->')
         self._log_request(data=data, headers=kwargs.get('headers', None), url=url)
         for retry in range(max_retries):
-            debug('Attempt #%i of %i' % (retry+1, max_retries))
+            debug('Attempt %i of %i' % (retry+1, max_retries))
             try:
                 response = requests.get(url, data=data, verify=verify, **kwargs)
                 if response.status_code < 300:
+                    info('GET request: SUCCESS - Status code: %s' %response.status_code)
                     break  # Break and go to final task if request was successful (any status code 200-299)
                 elif response.status_code in [401, 403]:
-                    info('Try to re-login after HTTP error: %s and send request again' % response.status_code)
+                    warning('Try to re-login after HTTP error: %s and send request again' % response.status_code)
                     self._login(log=False)
                     response.raise_for_status()
                 else:
@@ -92,17 +98,20 @@ class vCDAPI(object):
         debug('<----- POST request start ----->')
         self._log_request(data=data, headers=kwargs.get('headers', None), url=url)
         for retry in range(max_retries):
-            debug('Attempt #%i of %i' % (retry+1, max_retries))
+            debug('Attempt %i of %i' % (retry+1, max_retries))
             try:
                 response = requests.post(url, data=data, json=json, verify=verify, **kwargs)
                 if response.status_code < 300:
+                    info('POST request: SUCCESS - Status code: %s' %response.status_code)
                     break  # Break and go to final task if request was successful (any status code 200-299)
-                elif response.status_code in [401, 403]:
-                    info('Try to re-login after HTTP error: %s and send request again' % response.status_code)
+                elif response.status_code == 401:
+                    warning('Try to re-login after HTTP error: %s and send request again' % response.status_code)
                     self._login(log=False)
                     response.raise_for_status()
+                """
                 else:
                     response.raise_for_status()  # raise for any other HTTP status than the ones handled above
+                """
             except self.request_exceptions:
                 continue
             finally:
@@ -114,17 +123,20 @@ class vCDAPI(object):
         debug('<----- PUT request start ----->')
         self._log_request(data=data, headers=kwargs.get('headers', None), url=url)
         for retry in range(max_retries):
-            debug('Attempt #%i of %i' % (retry+1, max_retries))
+            debug('Attempt %i of %i' % (retry+1, max_retries))
             try:
                 response = requests.put(url, data=data, verify=verify, **kwargs)
                 if response.status_code < 300:
+                    info('PUT request: SUCCESS - Status code: %s' %response.status_code)
                     break  # Break and go to final task if request was successful (any status code 200-299)
                 elif response.status_code in [401, 403]:
                     info('Try to re-login after HTTP error: %s and send request again' % response.status_code)
                     self._login(log=False)
                     response.raise_for_status()
+                """
                 else:
                     response.raise_for_status()  # raise for any other HTTP status than the ones handled above
+                """
             except requests.exceptions.HTTPError:
                 continue
             finally:
@@ -136,10 +148,11 @@ class vCDAPI(object):
         debug('<----- DELETE request start ----->')
         self._log_request(data=data, headers=kwargs.get('headers', None), url=url)
         for retry in range(max_retries):
-            debug('Attempt #%i of %i' % (retry+1, max_retries))
+            debug('Attempt %i of %i' % (retry+1, max_retries))
             try:
                 response = requests.delete(url, verify=verify, **kwargs)
                 if response.status_code < 300:
+                    info('DELETE request: SUCCESS - Status code: %s' %response.status_code)
                     break  # Break and go to final task if request was successful (any status code 200-299)
                 elif response.status_code in [401, 403]:
                     info('Try to re-login after HTTP error: %s and send request again' % response.status_code)
@@ -169,7 +182,7 @@ class vCDAPI(object):
             debug('username: %s and password: %s ' % (self.username, self.password))
             self._log_request(headers=self.get_vcloud_headers(), url=url)
         for retry in range(self.max_retries):
-            debug('This is attempt #%i' % (retry+1))
+            debug('This is login attempt %i of %i' % (retry+1, self.max_retries))
             try:
                 response = requests.post(url, headers=self.get_vcloud_headers(), auth=(self.username, self.password),
                                          verify=self.verify)
@@ -197,7 +210,7 @@ class vCDAPI(object):
                 self._log_request(headers=self.get_vcloud_headers(), url=url)
                 response = self.delete(url, max_retries=self.max_retries, headers=self.get_vcloud_headers())
                 self._log_response(response)
-                if response.status_code == 200:
+                if response.status_code < 300:
                     debug("Successfully logged in to vCD %s" % self.host)
                     self.token = response.headers['x-vcloud-authorization']
                     debug('Token set successfully to: %s' % self.token)
@@ -295,12 +308,22 @@ class vCDAPI(object):
         if component_to_check == 'memory':
             mem_conf = self.get_vm_memory_config(vm_id, task_id)
             info('%s - checking memory configuration of VM(%s)' % (task_id, vm_id))
+            if self.check_vm_memory(4096, vm_id, task_id):
+                message = 'bad memory'
+                return True, message
+            else:
+                message = 'good memory'
+                return True, message
 
+        """
         if component_to_check == 'cpu':
-            return True, 'test memory'
+            message = 'test cpu'
+            return True, message
 
-        if component_to_check == 'memory':
-            return True, 'test memory'
+        if component_to_check == 'disk':
+            message = 'test disk'
+            return True, message
+        """
 
     def check_vm_network(self, vm_id, task_id):
         badconfig = False
@@ -325,19 +348,12 @@ class vCDAPI(object):
             info('%s - VM(%s) has no network adapter connected to a network!' % (task_id, vm_id))
         return badconfig
 
-        """
-        print(elem.text)
-        qty = item.find('rasd:VirtualQuantity', ns)
-        print(' |--> ', qty.text)
-        result = [el.attrib['id'] for el in recs if el.attrib['type'] == attrib_type]
-        return result
-        """
-
     def check_vm_memory(self, memlimit, vm_id, task_id):
+        badconfig = False
         mem_conf = self.get_vm_memory_config(vm_id, task_id)
         info('%s - checking memory configuration of VM(%s)' % (task_id, vm_id))
 
-        return False
+        return badconfig
 
     def check_vm_cpu(self, cpulimit, xml):
         """to be implemented"""
@@ -358,5 +374,10 @@ class vCDAPI(object):
         url = '%s/api/admin/extension/blockingTask/%s/action/%s' % (self.host, taskid, action.lower())
         body = '<?xml version="1.0" encoding="UTF-8"?><BlockingTaskOperationParams xmlns="http://www.vmware.com/vcloud/extension/v1.5"><Message>%s</Message></BlockingTaskOperationParams>' % msg
         response = self.post(url, max_retries=self.max_retries, headers=self.get_vcloud_headers(), data=body)
-        if response.status_code == 200:
+        if response.status_code < 300:
             info("Action %s on task %s executed successfully" % (action, taskid))
+        elif response.status_code == 403:
+            warning('%s - blocking task not existing anymore and is likly to be timed out')
+            info('%s - Executing action "%s" on blocking task: FAILED'
+                 ' (this is mostly du to blocking task default timeout reached)' % (taskid, action))
+            debug('%s - Response: %s' % (taskid, response.content))
