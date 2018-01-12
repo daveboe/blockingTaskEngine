@@ -1,8 +1,3 @@
-"""
-Created on 20.12.2017
-
-@author: tzhboda4
-"""
 import logging
 import requests
 import lxml.etree as etree
@@ -20,32 +15,35 @@ class vCDAPI(object):
         """
         Create a VCD connection
         """
-        # self.logger = logging.getLogger(__name__)
         self.conf = conf
+
+        # set up variables used for HTTP requests
+        self.verify = conf['vcd'].get('verify')
+        self.max_retries = conf['vcd'].get('retries') if conf['vcd'].get('retries') else 2
+        self.namespaces = conf['vcd'].get('namespaces')
+        self.request_exceptions = (requests.exceptions.Timeout, requests.exceptions.ConnectionError,
+                                   requests.exceptions.HTTPError)
+
+        # initialize variable fo the x-vcloud-autorization token, get username and password and try to login to VCD
         self.host = conf['vcd'].get('host')
         if not (self.host.startswith('https://') or self.host.startswith('http://')):
             self.host = 'https://' + self.host
         self.apiversion = conf['vcd'].get('apiversion') if conf['vcd'].get('apiversion') else '9.0'
+        self.token = None
         self.username = conf['vcd'].get('username')
         try:
-            with open('configuration/password.txt', 'rt') as file:
-                self.password = file.read()  # .replace('\\n', '')
+            with open(conf['vcd'].get('passwordFile'), 'rt') as file:
+                self.password = file.read()
                 file.close()
         except Exception as err:
             debug('Error: %s' % err)
-        self.verify = conf['vcd'].get('verify') if conf['vcd'].get('verify') else True
-        self.max_retries = conf['vcd'].get('retries') if conf['vcd'].get('retries') else 2
-        self.token = None
-        self.request_exceptions = (requests.exceptions.Timeout, requests.exceptions.ConnectionError,
-                                   requests.exceptions.HTTPError)
         self._login()
-        self.namespaces = conf['vcd'].get('namespaces')
 
     """
     Define some HTTP methods used for vCD API
         _log_requests() and _log_response() used for logging the request and/or response 
         post(), get(), put() and delete() implementing their equivalents in requests but also try to re login after
-        a 401 or 403 response code
+        a 401 or 403 response code as well as retrying after connection error or timeout
     """
 
     @staticmethod
@@ -68,13 +66,14 @@ class vCDAPI(object):
                 debug('response header: %s:%s', header, response.headers[header])
             debug('[%d] %s', response.status_code, response.request)
 
-    def get(self, url, max_retries=1, data=None, **kwargs):
+    def get(self, url, max_retries=1, data=None, verify=False, **kwargs):
         debug('<----- GET request start ----->')
         self._log_request(data=data, headers=kwargs.get('headers', None), url=url)
-        for i in range(max_retries):
+        for retry in range(max_retries):
+            debug('Attempt #%i of %i' % (retry+1, max_retries))
             try:
-                response = requests.get(url, data=data, **kwargs)
-                if response.status_code == 200:
+                response = requests.get(url, data=data, verify=verify, **kwargs)
+                if response.status_code < 300:
                     break  # Break and go to final task if request was successful (any status code 200-299)
                 elif response.status_code in [401, 403]:
                     info('Try to re-login after HTTP error: %s and send request again' % response.status_code)
@@ -89,13 +88,14 @@ class vCDAPI(object):
                 debug('<----- GET request end ----->')
                 return response
 
-    def post(self, url, max_retries=0, data=None, json=None, **kwargs):
+    def post(self, url, max_retries=0, data=None, json=None, verify=False, **kwargs):
         debug('<----- POST request start ----->')
         self._log_request(data=data, headers=kwargs.get('headers', None), url=url)
-        for i in range(max_retries):
+        for retry in range(max_retries):
+            debug('Attempt #%i of %i' % (retry+1, max_retries))
             try:
-                response = requests.post(url, data=data, json=json, **kwargs)
-                if response.status_code == 200:
+                response = requests.post(url, data=data, json=json, verify=verify, **kwargs)
+                if response.status_code < 300:
                     break  # Break and go to final task if request was successful (any status code 200-299)
                 elif response.status_code in [401, 403]:
                     info('Try to re-login after HTTP error: %s and send request again' % response.status_code)
@@ -110,12 +110,13 @@ class vCDAPI(object):
                 debug('<----- POST request end ----->')
                 return response
 
-    def put(self, url, max_retries=0, data=None, **kwargs):
+    def put(self, url, max_retries=0, data=None, verify=False, **kwargs):
         debug('<----- PUT request start ----->')
         self._log_request(data=data, headers=kwargs.get('headers', None), url=url)
-        for i in range(max_retries):
+        for retry in range(max_retries):
+            debug('Attempt #%i of %i' % (retry+1, max_retries))
             try:
-                response = requests.put(url, data=data, **kwargs)
+                response = requests.put(url, data=data, verify=verify, **kwargs)
                 if response.status_code < 300:
                     break  # Break and go to final task if request was successful (any status code 200-299)
                 elif response.status_code in [401, 403]:
@@ -131,13 +132,14 @@ class vCDAPI(object):
                 debug('<----- PUT request end ----->')
                 return response
 
-    def delete(self, url, max_retries=0, data=None, **kwargs):
+    def delete(self, url, max_retries=0, data=None, verify=False, **kwargs):
         debug('<----- DELETE request start ----->')
         self._log_request(data=data, headers=kwargs.get('headers', None), url=url)
-        for i in range(max_retries):
+        for retry in range(max_retries):
+            debug('Attempt #%i of %i' % (retry+1, max_retries))
             try:
-                response = requests.delete(url, **kwargs)
-                if response.status_code == 200:
+                response = requests.delete(url, verify=verify, **kwargs)
+                if response.status_code < 300:
                     break  # Break and go to final task if request was successful (any status code 200-299)
                 elif response.status_code in [401, 403]:
                     info('Try to re-login after HTTP error: %s and send request again' % response.status_code)
@@ -166,7 +168,8 @@ class vCDAPI(object):
             debug('<----- Start login process ----->')
             debug('username: %s and password: %s ' % (self.username, self.password))
             self._log_request(headers=self.get_vcloud_headers(), url=url)
-        for i in range(self.max_retries):
+        for retry in range(self.max_retries):
+            debug('This is attempt #%i' % (retry+1))
             try:
                 response = requests.post(url, headers=self.get_vcloud_headers(), auth=(self.username, self.password),
                                          verify=self.verify)
@@ -183,7 +186,7 @@ class vCDAPI(object):
             finally:
                 if log:
                     self._log_response(response)
-                    debug('<----- End login process ----->')
+        if log: debug('<----- End login process ----->')
 
     def _logout(self):
         debug('logout from VCD %s' % self.host)
@@ -207,63 +210,62 @@ class vCDAPI(object):
                 debug('Error: %s - going to retry logout' % err)
                 continue
 
-    def get_vm_cpu_config(self, vmid):
+    def get_vm_cpu_config(self, vmid, taskid):
+        info('%s - try to get cpu configuration of vm (%s)' % (taskid, vmid))
         url = '%s/api/vApp/vm-%s/virtualHardwareSection/cpu' % (self.host, vmid)
         response = self.get(url, headers=self.get_vcloud_headers(), verify=self.verify)
         if response.status_code == 200:
-            debug('VM %s found')
             xml_doc = etree.fromstring(response.content)
-            debug('This is the VM config: %s' % xml_doc)
+            info('%s - get cpu config of vm (%s):SUCCESS' % (taskid, vmid))
+            debug('%s - This is the xml of vm (%s): %s' % (taskid, vmid, xml_doc))
             return xml_doc
         elif response.status_code == 401:
-            info('Failed to retrieve the VM configuration. Response: %s' % response.status_code)
-            info('Failed to retrieve the VM configuration.')
+            info('%s - Failed to retrieve the VM CPU configuration for VM (%s). Response: %s'
+                 % (taskid, vmid, response.status_code))
             return None
 
-    def get_vm_memory_config(self, vmid):
+    def get_vm_memory_config(self, vmid, taskid):
+        info('%s - try to get memory configuration of vm (%s)' % (taskid, vmid))
         url = '%s/api/vApp/vm-%s/virtualHardwareSection/memory' % (self.host, vmid)
         response = self.get(url, max_retries=self.max_retries, headers=self.get_vcloud_headers())
         # resp = requests.get(url, headers=headers, verify=self.verify)
         if response.status_code == 200:
-            debug('VM %s found')
             xml_doc = etree.fromstring(response.content)
-            debug('This is the VM config: %s' % xml_doc)
+            info('%s - get memory config of vm (%s):SUCCESS' % (taskid, vmid))
+            debug('%s - This is the xml of vm (%s): %s' % (taskid, vmid, xml_doc))
             return xml_doc
         elif response.status_code == 401:
-            info('Failed to retrieve the VM configuration. Response: %s' % response.status_code)
-            info('Failed to retrieve the VM configuration.')
+            info('%s - Failed to retrieve the VM CPU configuration for VM(%s). Response: %s'
+                 % (taskid, vmid, response.status_code))
             return None
 
-    def get_vm_disk_config(self, vmid):
+    def get_vm_disk_config(self, vmid, taskid):
+        info('%s - try to get disk configuration of vm (%s)' % (taskid, vmid))
         url = '%s/api/vApp/vm-%s/virtualHardwareSection/disks' % (self.host, vmid)
         response = self.get(url, max_retries=self.max_retries, headers=self.get_vcloud_headers())
         # resp = requests.get(url, headers=headers, verify=self.verify)
         if response.status_code == 200:
-            debug('VM %s found')
             xml_doc = etree.fromstring(response.content)
-            recs = xml_doc.xpath('//x:Item', namespaces={'x': self.namespaces})
-            # vmconfig = [el.attrib for el in recs]
-            debug('This is the VM config: %s' % xml_doc)
-            return recs
+            info('%s - get disk config of VM(%s):SUCCESS' % (taskid, vmid))
+            debug('%s - This is the xml of VM(%s): %s' % (taskid, vmid, xml_doc))
+            return xml_doc
         elif response.status_code == 401:
-            info('Failed to retrieve the VM configuration. Response: %s' % response.status_code)
-            info('Failed to retrieve the VM configuration.')
+            info('%s - get cpu configuration of VM(%s): FAILED. Response: %s'
+                 % (taskid, vmid, response.status_code))
             return None
 
-    def get_vm_network_config(self, vmid):
+    def get_vm_network_config(self, vmid, taskid):
+        info('%s - try to get network configuration of VM(%s)' % (taskid, vmid))
         url = '%s/api/vApp/vm-%s/virtualHardwareSection/networkCards' % (self.host, vmid)
         response = self.get(url, max_retries=self.max_retries, headers=self.get_vcloud_headers())
         # resp = requests.get(url, headers=headers, verify=self.verify)
         if response.status_code == 200:
-            debug('VM %s found')
-            xml_doc = etree.fromstring(response.content)
-            #recs = xml_doc.xpath('//x:Item', namespaces={'x': self.namespaces})
-            # vmconfig = [el.attrib for el in recs]
-            debug('This is the VM config: %s' % xml_doc)
+            info('%s - get network config of VM(%s): SUCCESS' % (taskid, vmid))
+            debug('%s - This is the xml of VM(%s): %s' % (taskid, vmid, response.content))
             return response
         elif response.status_code == 401:
-            info('Failed to retrieve the VM configuration. Response: %s' % response.status_code)
-            info('Failed to retrieve the VM configuration.')
+            info('%s -get network config of VM(%s): FAILED. Response: %s'
+                 % (taskid, vmid, response.status_code))
             return None
 
     def resolve_vm_entity(self, urn):
@@ -279,37 +281,71 @@ class vCDAPI(object):
             error('Error: %s' % err)
             return None
 
-    def check_vm_network(self, vm_id):
+    def check_vm_configuration(self, vm_id, task_id, component_to_check):
+        component_to_check.lower()
+        message = ''
+        if component_to_check == 'network':
+            if self.check_vm_network(vm_id, task_id):
+                message = 'Bad network'
+                return False, message
+            else:
+                message = 'good network'
+                return True, message
+
+        if component_to_check == 'memory':
+            mem_conf = self.get_vm_memory_config(vm_id, task_id)
+            info('%s - checking memory configuration of VM(%s)' % (task_id, vm_id))
+
+        if component_to_check == 'cpu':
+            return True, 'test memory'
+
+        if component_to_check == 'memory':
+            return True, 'test memory'
+
+    def check_vm_network(self, vm_id, task_id):
         badconfig = False
-        netConf = self.get_vm_network_config(vm_id)
-        xml_doc = etree.fromstring(netConf.content)
+        net_conf = self.get_vm_network_config(vm_id, task_id)
+        info('%s - checking network configuration of VM(%s)' % (task_id, vm_id))
+        xml_doc = etree.fromstring(net_conf.content)
         recs = xml_doc.xpath('//x:Connection', namespaces={'x': self.namespaces['rasd']})
         lst = [el.text for el in recs ]
-        print(lst, len(lst))
+        debug('%s - VM(%s) has the following networks connected: %s' % (task_id, vm_id, lst))
         if len(lst) > 1:
             for n in lst:
                 if lst.count(n) > 1:
-                    info('Bad config: more than one network adapter connected to the network: %s' % n)
+                    info('%s - Bad network configuration: more than one network adapter of VM(%s) is connected'
+                         ' to the network: %s' % (task_id, vm_id, n))
                     badconfig = True
                     break
+                else:
+                    info('%s - network configuration of VM(%s) is good!' % (task_id, vm_id))
+        elif len(lst) == 1:
+            info('%s - VM(%s) has only one network adapter connected to a network.' % (task_id, vm_id))
+        else:
+            info('%s - VM(%s) has no network adapter connected to a network!' % (task_id, vm_id))
         return badconfig
 
+        """
         print(elem.text)
         qty = item.find('rasd:VirtualQuantity', ns)
         print(' |--> ', qty.text)
         result = [el.attrib['id'] for el in recs if el.attrib['type'] == attrib_type]
         return result
+        """
 
-    def check_vm_memory(self, memlimit, xml ):
-        return result
+    def check_vm_memory(self, memlimit, vm_id, task_id):
+        mem_conf = self.get_vm_memory_config(vm_id, task_id)
+        info('%s - checking memory configuration of VM(%s)' % (task_id, vm_id))
+
+        return False
 
     def check_vm_cpu(self, cpulimit, xml):
         """to be implemented"""
-        return result
+        return False
 
     def check_vm_disk(self, disklimit, storagelimit, xml):
         """to be implemented"""
-        return result
+        return False
 
     def get_blocking_task_by_id(self, taskid):
         url = '%s/api/admin/extension/blockingTask/%s' % (self.host, taskid)
